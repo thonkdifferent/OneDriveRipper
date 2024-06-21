@@ -15,7 +15,7 @@ namespace OneDriveRipper
             {
                 FileStream fs = File.Create(folderPath + "/.test");
                 fs.Close();
-                File.Delete(folderPath + "/.test");
+                File.Delete(folderPath +"/.test");
                 return true;
             }
             catch (UnauthorizedAccessException)
@@ -44,8 +44,6 @@ namespace OneDriveRipper
 
             if (string.IsNullOrEmpty(userSecretPrototype.AppId) || string.IsNullOrEmpty(userSecretPrototype.Scopes))
             {
-                Console.WriteLine(userSecretPrototype.AppId);
-                Console.WriteLine(userSecretPrototype.Scopes);
                 return null;
             }
             appData.AppId = userSecretPrototype.AppId;

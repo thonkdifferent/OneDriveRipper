@@ -1,8 +1,10 @@
 using Microsoft.Graph;
 using Microsoft.Identity.Client;
 using System;
+using System.Json;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Text.Json;
 using System.Threading.Tasks;
 using File = System.IO.File;
 
@@ -12,7 +14,7 @@ namespace OneDriveRipper.Authentication
     {
         private IPublicClientApplication _msalClient;
         private string[] _scopes;
-        private IAccount _userAccount;
+        private IAccount? _userAccount;
 
         public DeviceCodeAuthProvider(string appId, string[] scopes)
         {
@@ -63,8 +65,6 @@ namespace OneDriveRipper.Authentication
 
         private IAccount? RetrieveAccountFromCache()
         {
-            var account = new Account();
-
             if (!File.Exists("userToken.json"))
             {
                 File.Create("userToken.json");
@@ -72,6 +72,17 @@ namespace OneDriveRipper.Authentication
             }
 
             try
+            {
+                Account? account = JsonSerializer.Deserialize<Account>(File.ReadAllText("userToken.json"));
+                return account;
+            }
+            catch (Exception e)
+            {
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                Console.WriteLine($"Error while retrieving token: {e.Message}");
+                Console.ResetColor();
+                return null;
+            }
         }
 
         // This is the required function to implement IAuthenticationProvider
