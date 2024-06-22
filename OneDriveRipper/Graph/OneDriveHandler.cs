@@ -5,6 +5,7 @@ using System.IO;
 using System.Net.Http;
 using System.Threading;
 using Microsoft.Graph;
+using Microsoft.Graph.Models;
 using Directory = System.IO.Directory;
 using File = System.IO.File;
 
@@ -12,36 +13,39 @@ namespace OneDriveRipper.Graph
 {
     public class OneDriveHandler
     {
+
+        private GraphServiceClient _graphServiceClient;
+        private Drive _userDrive;
         public struct FileInfo
         {
             public List<DriveItem> Files;
             public List<DriveItem> Directories;
-            public bool IsRoot;
-            public string Name;
         }
 
+        
         public struct DownloadInfo
         {
             public string Id;
             public string Path;
-            public DriveItem item;
+            public DriveItem Item;
         }
-        public static async Task<FileInfo> ParseGraphData(GraphServiceClient graphServiceClient, string id="", string name="#ROOT#")
+        public async Task<FileInfo> ParseGraphData(GraphServiceClient graphServiceClient, string id="root", string name="#ROOT#")
         {
             FileInfo fileInfo;
             fileInfo.Files = new List<DriveItem>();
             fileInfo.Directories = new List<DriveItem>();
-            fileInfo.Name = name;
-            fileInfo.IsRoot = false;
+
             try
             {
-                IDriveItemChildrenCollectionPage folderData;
-                folderData = (id == ""
-                    ? await graphServiceClient.Me.Drive.Root.Children
-                        .Request().GetAsync()
-                    : await graphServiceClient.Me.Drive.Items[id].Children
-                        .Request().GetAsync());
-                var pageIterator = PageIterator<DriveItem>.CreatePageIterator(graphServiceClient,
+                var drive = await graphServiceClient.Me.Drive.GetAsync();
+                var driveId = drive.Id;
+
+                DriveItemCollectionResponse? folderData = await graphServiceClient.Drives[driveId].Items[id].Children.GetAsync(requestConfiguration =>
+                {
+                    requestConfiguration.QueryParameters.Select =
+                        ["id", "@microsoft.graph.downloadUrl", "name", "size", "file", "parentReference"];
+                });
+                var pageIterator = PageIterator<DriveItem,DriveItemCollectionResponse>.CreatePageIterator(graphServiceClient,
                     folderData,
                     (item) =>
                     {
@@ -54,11 +58,6 @@ namespace OneDriveRipper.Graph
                             //Console.WriteLine($"[FOLDER_DETECT] {item.Name}");
                             fileInfo.Directories.Add(item);
                         }
-
-                        if (id == "")
-                            fileInfo.IsRoot = true;
-                        else
-                            fileInfo.IsRoot = false;
                         return true;
                     });
                 await pageIterator.IterateAsync();
@@ -71,7 +70,7 @@ namespace OneDriveRipper.Graph
             return fileInfo;
         }
 
-        public static async Task Download(DriveItem item, GraphServiceClient graphServiceClient, string path)
+        public async Task Download(DriveItem item, string path)
         {
             const long defaultChunkSize = 32768 * 1024; // 50 KB, TODO: change chunk size to make it realistic for a large file.
             long chunkSize = defaultChunkSize;
@@ -79,7 +78,7 @@ namespace OneDriveRipper.Graph
             byte[] bytesInStream; 
             // We'll use the file metadata to determine size and the name of the downloaded file
             // and to get the download URL.
-            var driveItemInfo = await graphServiceClient.Me.Drive.Items[item.Id].Request().GetAsync();
+            var driveItemInfo = await _graphServiceClient.Drives[_userDrive.Id].Items[item.Id].GetAsync();
             object downloadUrl;
             try
             {
@@ -142,6 +141,14 @@ namespace OneDriveRipper.Graph
             }
         }
 
+        public OneDriveHandler(GraphServiceClient client)
+        {
+            _graphServiceClient = client;
+            var driveTask = _graphServiceClient.Me.Drive.GetAsync();
+            Console.WriteLine("Getting current drive id. This may take a while depending on your network connection");
+            driveTask.RunSynchronously();
+            _userDrive = driveTask.Result;
+        }
         public static string ProcessGraphPath(string path)
         {
             try
@@ -153,11 +160,11 @@ namespace OneDriveRipper.Graph
                 return "";
             }
         }
-        public static async Task GetFiles(GraphServiceClient graphServiceClient,string rootPath)
+        public async Task GetFiles(string rootPath)
         {
             Stack<FileInfo> directories = new Stack<FileInfo>();
             List<DownloadInfo> anyErrorFiles = new List<DownloadInfo>();
-            directories.Push(await ParseGraphData(graphServiceClient));
+            directories.Push(await ParseGraphData(_graphServiceClient));
             if(!rootPath.EndsWith('/'))
                 rootPath += "/";
             while (directories.Count > 0)
@@ -179,7 +186,7 @@ namespace OneDriveRipper.Graph
                     {
                         Console.WriteLine($"Directory {rootPath + parentPath + directory.Name} already present. Skipping");
                     }
-                    directories.Push(await ParseGraphData(graphServiceClient,directory.Id,directory.Name));
+                    directories.Push(await ParseGraphData(_graphServiceClient,directory.Id,directory.Name));
                 }
                 foreach (DriveItem file in currentDir.Files)
                 {
@@ -191,7 +198,7 @@ namespace OneDriveRipper.Graph
                         Console.WriteLine($"Downloading {rootPath + parentPath + file.Name}");
                         try
                         {
-                            await Download(file, graphServiceClient, rootPath + parentPath + file.Name);
+                            await Download(file, rootPath + parentPath + file.Name);
                             Console.WriteLine("Done. Waiting 1 second before continuing");
                         }
                         catch (Exception e)
@@ -199,7 +206,7 @@ namespace OneDriveRipper.Graph
                             DownloadInfo downloadInfo = new DownloadInfo();
                             downloadInfo.Id = file.Id;
                             downloadInfo.Path = rootPath + parentPath + file.Name;
-                            downloadInfo.item = file;
+                            downloadInfo.Item = file;
                             anyErrorFiles.Add(downloadInfo);
                             File.Delete(downloadInfo.Path);
                             Console.WriteLine("Couldn't download file. Saving for later...");
@@ -221,7 +228,7 @@ namespace OneDriveRipper.Graph
                 Console.WriteLine($"Downloading {file.Path}");
                 try
                 {
-                    await Download(file.item, graphServiceClient, file.Path);
+                    await Download(file.Item, file.Path);
                     Console.WriteLine("Done. Waiting 5 seconds before continuing");
                 }
                 catch (Exception e)
@@ -229,7 +236,7 @@ namespace OneDriveRipper.Graph
                     DownloadInfo downloadInfo = new DownloadInfo();
                     downloadInfo.Id = file.Id;
                     downloadInfo.Path = file.Path;
-                    downloadInfo.item = file.item;
+                    downloadInfo.Item = file.Item;
                     anyErrorFiles.Add(downloadInfo);
                     File.Delete(downloadInfo.Path);
                     Console.WriteLine("Couldn't download file. Saving for later...");

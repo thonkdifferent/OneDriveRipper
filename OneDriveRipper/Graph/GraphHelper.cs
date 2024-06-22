@@ -1,31 +1,37 @@
 using Microsoft.Graph;
 using System;
 using System.Threading.Tasks;
+using Azure.Core;
+using Microsoft.Graph.Models;
+using Azure.Identity;
+using Microsoft.Kiota.Abstractions.Authentication;
+
 namespace OneDriveRipper.Graph
 {
     public class GraphHelper
     {
-        private static GraphServiceClient _graphClient;
-        public static void Initialize(IAuthenticationProvider authProvider)
+        private GraphServiceClient _graphClient;
+        private OneDriveHandler _handler;
+        public GraphHelper(IAuthenticationProvider authProvider)
         {
             _graphClient = new GraphServiceClient(authProvider);
+            _handler = new OneDriveHandler(_graphClient);
         }
 
-        public static async Task GetFilesOneDrive(string path)
+        public async Task GetFilesOneDrive(string path)
         {
-            await OneDriveHandler.GetFiles(_graphClient,path);
+            await _handler.GetFiles(path);
         }
-        public static async Task<User> GetMeAsync()
+        public async Task<User?> GetMeAsync()
         {
             try
             {
                 // GET /me
                 return await _graphClient.Me
-                    .Request()
-                    .Select(u => new{
-                        u.DisplayName
-                    })
-                    .GetAsync();
+                    .GetAsync(requestConfiguration =>
+                    {
+                        requestConfiguration.QueryParameters.Select = ["displayName"];
+                    });
             }
             catch (ServiceException ex)
             {

@@ -1,9 +1,9 @@
 ﻿using System;
 using System.IO;
 using System.Text.Json;
-using System.Threading.Tasks;
-using OneDriveRipper.Authentication;
 using OneDriveRipper.Graph;
+using Azure.Identity;
+using Microsoft.Kiota.Authentication.Azure;
 
 namespace OneDriveRipper
 {
@@ -23,9 +23,9 @@ namespace OneDriveRipper
                 return false;
             }
         }
-        static UserSecret LoadConfig()
+        static UserSecret? LoadConfig()
         {
-            UserSecretPrototype userSecretPrototype = new UserSecretPrototype();
+            UserSecretPrototype? userSecretPrototype = new UserSecretPrototype();
             UserSecret appData = new UserSecret();
 
             try
@@ -42,7 +42,7 @@ namespace OneDriveRipper
                 return null;
             }
 
-            if (string.IsNullOrEmpty(userSecretPrototype.AppId) || string.IsNullOrEmpty(userSecretPrototype.Scopes))
+            if (string.IsNullOrEmpty(userSecretPrototype?.AppId) || string.IsNullOrEmpty(userSecretPrototype.Scopes))
             {
                 return null;
             }
@@ -51,44 +51,55 @@ namespace OneDriveRipper
             return appData;
 
         }
-        static async Task Main()
+        static void Main()
         {
-            UserSecret data = LoadConfig();
+            UserSecret? data = LoadConfig();
             if (data == null)
             {
                 Console.WriteLine("Missing or invalid usersecrets.json file. Make sure it is in the root directory of the program\n and try again");
                 return;
             }
             Console.WriteLine("OneDrive Ripper - ThonkDifferent");
-            var authProvider = new DeviceCodeAuthProvider(data.AppId, data.Scopes);
-            var accessToken = authProvider.GetAccessToken().Result;
-            if (string.IsNullOrEmpty(accessToken))
+
+
+            var options = new InteractiveBrowserCredentialOptions
             {
-                Console.WriteLine("Couldn't authenticate. Halting");
-                return;
-            }
+                TenantId = "common",
+                ClientId = data.AppId,
+                AuthorityHost = AzureAuthorityHosts.AzureGermany,
+                RedirectUri = new Uri("http://localhost")
+            };
+            var credential = new InteractiveBrowserCredential(options);
+            var authProvider =
+                new AzureIdentityAuthenticationProvider(credential, ["graph.microsoft.com"], scopes: data.Scopes);
             // Initialize Graph client
-            GraphHelper.Initialize(authProvider);
+            GraphHelper helper = new(authProvider);
 
             // Get signed in user
-            var user = GraphHelper.GetMeAsync().Result;
+            var user = helper.GetMeAsync().Result;
+            if (user == null)
+            {
+                Console.Error.WriteLine("Coult not get user data. Check your internet connection or the application permissions in your Microsoft Account dashboard");
+                return;
+            }
             Console.WriteLine($"Welcome {user.DisplayName}!\n");
 
 
             string rootFolder = Environment.CurrentDirectory+"/download";
             
-            int choice = -1;
+            int? choice = -1;
             while (choice != 0)
             {
                 Console.WriteLine($"The files will be downloaded in {rootFolder}");
                 Console.WriteLine("Please choose one of the following options:");
                 Console.WriteLine("0. Exit");
-                Console.WriteLine("1. Display access token");
-                Console.WriteLine("2. Change download location");
-                Console.WriteLine("3. Get the whole OneDrive disk");
+                Console.WriteLine("1. Change download location");
+                Console.WriteLine("2. Get the whole OneDrive disk");
                 try
                 {
-                    choice = int.Parse(Console.ReadLine());
+                    var input = Console.ReadLine();
+                    if(string.IsNullOrEmpty(input)) continue;
+                    choice = int.Parse(input);
                 }
                 catch (FormatException)
                 {
@@ -103,11 +114,8 @@ namespace OneDriveRipper
                         Console.WriteLine("Goodbye...");
                         break;
                     case 1:
-                        Console.WriteLine($"Access token: {accessToken}\n");
-                        break;
-                    case 2:
                         Console.WriteLine("Drag the folder or type the path you want the downloaded data to be stored");
-                        string tentativeDlDir = Console.ReadLine();
+                        string tentativeDlDir = Console.ReadLine() ?? "";
                         if (!Directory.Exists(tentativeDlDir))
                         {
                             bool ok = true;
@@ -115,7 +123,7 @@ namespace OneDriveRipper
                             {
                                 Console.WriteLine(
                                     $"The path {tentativeDlDir} does not exist. Would you want to create it?");
-                                char ans = Convert.ToChar(Console.ReadLine());
+                                char ans = Convert.ToChar(Console.ReadLine() ?? "");
                                 if (ans == 'y')
                                     Directory.CreateDirectory(tentativeDlDir);
                             }
@@ -136,14 +144,15 @@ namespace OneDriveRipper
                                 rootFolder = tentativeDlDir;
                         }
                         break;
-                    case 3:
+                    case 2:
                         if (!Directory.Exists(rootFolder))
                         {
                             Directory.CreateDirectory(rootFolder);
                         }
                         if (HasWriteAccessToFolder(rootFolder))
                         {
-                            await GraphHelper.GetFilesOneDrive(rootFolder);
+                            var task = helper.GetFilesOneDrive(rootFolder);
+                            task.RunSynchronously();
                         }
                         else
                         {
