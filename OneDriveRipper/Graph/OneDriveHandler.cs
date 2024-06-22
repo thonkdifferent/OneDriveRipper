@@ -16,6 +16,18 @@ namespace OneDriveRipper.Graph
 
         private GraphServiceClient _graphServiceClient;
         private Drive _userDrive;
+        private uint _chunkSize;
+        public uint ChunkSize
+        {
+            get => _chunkSize;
+            set
+            {
+                if (value == 0)
+                    throw new ArgumentException("Chunks cannot be 0MB in size");
+                _chunkSize = (uint)1 << (int)(value - 1) * 1024;
+            }
+        }
+
         public struct FileInfo
         {
             public List<DriveItem> Files;
@@ -70,40 +82,25 @@ namespace OneDriveRipper.Graph
 
         public async Task Download(DriveItem item, string path)
         {
-            const long defaultChunkSize = 32768 * 1024; // 50 KB, TODO: change chunk size to make it realistic for a large file.
-            long chunkSize = defaultChunkSize;
+           
             long offset = 0;         // cursor location for updating the Range header.
             byte[] bytesInStream; 
             // We'll use the file metadata to determine size and the name of the downloaded file
             // and to get the download URL.
-            var driveItemInfo = await _graphServiceClient.Drives[_userDrive.Id].Items[item.Id].GetAsync();
-            if (driveItemInfo == null)
-                throw new NullReferenceException(
-                    $"Could not get the file information for id {item.Id}. This could be caused by an invalid ID or a network issue");
-            string downloadUrl;
-            try
-            {
-                // Get the download URL. This URL is preauthenticated and has a short TTL.
-                object? rawUrl;
-                driveItemInfo.AdditionalData.TryGetValue("@microsoft.graph.downloadUrl", out rawUrl);
-                if (rawUrl == null) throw new ArgumentNullException();
 
-                downloadUrl = (string)rawUrl;
-            }
-            catch (ArgumentNullException)
-            {
-                return;
-            }
+            var downloadUrl = await GetDownloadUrl(item);
+            
+            if(downloadUrl == null) return;
 
             // Get the number of bytes to download. calculate the number of chunks and determine
             // the last chunk size.
-            if(driveItemInfo.Size == null) return;
-            long size = (long)driveItemInfo.Size;
-            int numberOfChunks = Convert.ToInt32(size / defaultChunkSize); 
+            if(item.Size == null) return;
+            long size = (long)item.Size;
+            int numberOfChunks = Convert.ToInt32(size / ChunkSize); 
             // We are incrementing the offset cursor after writing the response stream to a file after each chunk. 
             // Subtracting one since the size is 1 based, and the range is 0 base. There should be a better way to do
             // this but I haven't spent the time on that.
-            int lastChunkSize = Convert.ToInt32(size % defaultChunkSize) - numberOfChunks - 1; 
+            int lastChunkSize = Convert.ToInt32(size % ChunkSize) - numberOfChunks - 1; 
             if (lastChunkSize > 0) { numberOfChunks++; }
 
             // Create a file stream to contain the downloaded file.
@@ -146,6 +143,27 @@ namespace OneDriveRipper.Graph
             }
         }
 
+        private async Task<string?> GetDownloadUrl(DriveItem item)
+        {
+            string downloadUrl;
+            var driveItemInfo = await _graphServiceClient.Drives[_userDrive.Id].Items[item.Id].GetAsync();
+            if (driveItemInfo == null)
+                throw new NullReferenceException(
+                    $"Could not get the file information for id {item.Id}. This could be caused by an invalid ID or a network issue");
+            
+            try
+            {
+                // Get the download URL. This URL is preauthenticated and has a short TTL.
+                object? rawUrl;
+                driveItemInfo.AdditionalData.TryGetValue("@microsoft.graph.downloadUrl", out rawUrl);
+                return (string?)rawUrl;
+            }
+            catch (ArgumentNullException)
+            {
+                return null;
+            }
+        }
+
         public OneDriveHandler(GraphServiceClient client)
         {
             _graphServiceClient = client;
@@ -157,6 +175,7 @@ namespace OneDriveRipper.Graph
                 throw new NullReferenceException("Could not retrieve drive information");
             }
             _userDrive = driveTask.Result;
+            ChunkSize = 32768 * 1024; //32 MB
         }
         public static string ProcessGraphPath(string? path)
         {
