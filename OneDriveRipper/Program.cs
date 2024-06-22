@@ -7,7 +7,7 @@ using Microsoft.Kiota.Authentication.Azure;
 
 namespace OneDriveRipper
 {
-    class Program
+    static class Program
     {
         private static bool HasWriteAccessToFolder(string folderPath)
         {
