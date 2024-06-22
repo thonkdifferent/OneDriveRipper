@@ -183,13 +183,7 @@ namespace OneDriveRipper.Graph
                 FileInfo currentDir = directories.Pop();
                 foreach (DriveItem directory in currentDir.Directories)
                 {
-                    string parentPath;
-                    if (directory.ParentReference == null)
-                        parentPath = "";
-                    else
-                        parentPath = ProcessGraphPath(directory.ParentReference.Path);
-                    if (parentPath != "")
-                        parentPath += Path.PathSeparator;
+                    var parentPath = GetParentPath(directory);
                     if (!Directory.Exists(rootPath + parentPath + directory.Name))
                     {
                         Console.WriteLine($"parentPath {parentPath}");
@@ -201,13 +195,16 @@ namespace OneDriveRipper.Graph
                     {
                         Console.WriteLine($"Directory {rootPath + parentPath + directory.Name} already present. Skipping");
                     }
+
+                    if (directory.Id == null || directory.Name == null)
+                    {
+                        throw new NullReferenceException("A directory has no name or no id property. This could be a network issue.");
+                    }
                     directories.Push(await ParseGraphData(_graphServiceClient,directory.Id,directory.Name));
                 }
                 foreach (DriveItem file in currentDir.Files)
                 {
-                    string parentPath = ProcessGraphPath(file.ParentReference.Path);
-                    if (parentPath != "")
-                        parentPath += Path.PathSeparator;
+                    var parentPath = GetParentPath(file);
                     if (!File.Exists(rootPath + parentPath + file.Name))
                     {
                         Console.WriteLine($"Downloading {rootPath + parentPath + file.Name}");
@@ -216,9 +213,15 @@ namespace OneDriveRipper.Graph
                             await Download(file, rootPath + parentPath + file.Name);
                             Console.WriteLine("Done. Waiting 1 second before continuing");
                         }
-                        catch (Exception e)
+                        catch (Exception)
                         {
                             DownloadInfo downloadInfo = new DownloadInfo();
+                            if (string.IsNullOrEmpty(file.Id))
+                            {
+                                Console.Error.WriteLine("Failed download has no id property");
+                                Thread.Sleep(1000);
+                                continue;
+                            }
                             downloadInfo.Id = file.Id;
                             downloadInfo.Path = rootPath + parentPath + file.Name;
                             downloadInfo.Item = file;
@@ -246,7 +249,7 @@ namespace OneDriveRipper.Graph
                     await Download(file.Item, file.Path);
                     Console.WriteLine("Done. Waiting 5 seconds before continuing");
                 }
-                catch (Exception e)
+                catch (Exception)
                 {
                     DownloadInfo downloadInfo = new DownloadInfo();
                     downloadInfo.Id = file.Id;
@@ -260,6 +263,18 @@ namespace OneDriveRipper.Graph
                 
             }
 
+        }
+
+        private string GetParentPath(DriveItem directory)
+        {
+            string parentPath;
+            if (directory.ParentReference == null)
+                parentPath = "";
+            else
+                parentPath = ProcessGraphPath(directory.ParentReference.Path);
+            if (parentPath != "")
+                parentPath += Path.PathSeparator;
+            return parentPath;
         }
     }
 }
