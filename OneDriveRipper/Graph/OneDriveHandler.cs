@@ -37,14 +37,12 @@ namespace OneDriveRipper.Graph
 
             try
             {
-                var drive = await graphServiceClient.Me.Drive.GetAsync();
-                var driveId = drive.Id;
-
-                DriveItemCollectionResponse? folderData = await graphServiceClient.Drives[driveId].Items[id].Children.GetAsync(requestConfiguration =>
+                DriveItemCollectionResponse? folderData = await graphServiceClient.Drives[_userDrive.Id].Items[id].Children.GetAsync(requestConfiguration =>
                 {
                     requestConfiguration.QueryParameters.Select =
                         ["id", "@microsoft.graph.downloadUrl", "name", "size", "file", "parentReference"];
                 });
+                if (folderData == null) throw new ArgumentNullException(nameof(folderData),$"Could not retrieve folder data for ID {id}. This could mean the ID corresponds to a file or that a network error occured. Please try again later. If that does not work, please report this issue on GitHub");
                 var pageIterator = PageIterator<DriveItem,DriveItemCollectionResponse>.CreatePageIterator(graphServiceClient,
                     folderData,
                     (item) =>
@@ -79,20 +77,27 @@ namespace OneDriveRipper.Graph
             // We'll use the file metadata to determine size and the name of the downloaded file
             // and to get the download URL.
             var driveItemInfo = await _graphServiceClient.Drives[_userDrive.Id].Items[item.Id].GetAsync();
-            object downloadUrl;
+            if (driveItemInfo == null)
+                throw new NullReferenceException(
+                    $"Could not get the file information for id {item.Id}. This could be caused by an invalid ID or a network issue");
+            string downloadUrl;
             try
             {
                 // Get the download URL. This URL is preauthenticated and has a short TTL.
-                
-                driveItemInfo.AdditionalData.TryGetValue("@microsoft.graph.downloadUrl", out downloadUrl);
+                object? rawUrl;
+                driveItemInfo.AdditionalData.TryGetValue("@microsoft.graph.downloadUrl", out rawUrl);
+                if (rawUrl == null) throw new ArgumentNullException();
+
+                downloadUrl = (string)rawUrl;
             }
-            catch (ArgumentNullException e)
+            catch (ArgumentNullException)
             {
                 return;
             }
 
             // Get the number of bytes to download. calculate the number of chunks and determine
             // the last chunk size.
+            if(driveItemInfo.Size == null) return;
             long size = (long)driveItemInfo.Size;
             int numberOfChunks = Convert.ToInt32(size / defaultChunkSize); 
             // We are incrementing the offset cursor after writing the response stream to a file after each chunk. 
@@ -102,7 +107,7 @@ namespace OneDriveRipper.Graph
             if (lastChunkSize > 0) { numberOfChunks++; }
 
             // Create a file stream to contain the downloaded file.
-            using (FileStream fileStream = System.IO.File.Create((path)))
+            using (FileStream fileStream = File.Create((path)))
             {
                 for (int i = 0; i < numberOfChunks; i++)
                 {
@@ -114,12 +119,12 @@ namespace OneDriveRipper.Graph
                     }
 
                     // Create the request message with the download URL and Range header.
-                    HttpRequestMessage req = new HttpRequestMessage(HttpMethod.Get, (string)downloadUrl);
+                    HttpRequestMessage req = new HttpRequestMessage(HttpMethod.Get, downloadUrl);
                     req.Headers.Range = new System.Net.Http.Headers.RangeHeaderValue(offset, chunkSize + offset);
 
-                    // We can use the the client library to send this although it does add an authentication cost.
+                    // We can use the client library to send this, although it does add an authentication cost.
                     // HttpResponseMessage response = await graphClient.HttpProvider.SendAsync(req);
-                    // Since the download URL is preauthenticated, and we aren't deserializing objects, 
+                    // Since the download URL is pre-authenticated, and we aren't deserializing objects, 
                     // we'd be better to make the request with HttpClient.
                     var client = new HttpClient();
                     HttpResponseMessage response = await client.SendAsync(req);
@@ -147,10 +152,16 @@ namespace OneDriveRipper.Graph
             var driveTask = _graphServiceClient.Me.Drive.GetAsync();
             Console.WriteLine("Getting current drive id. This may take a while depending on your network connection");
             driveTask.RunSynchronously();
+            if (driveTask.Result == null)
+            {
+                throw new NullReferenceException("Could not retrieve drive information");
+            }
             _userDrive = driveTask.Result;
         }
-        public static string ProcessGraphPath(string path)
+        public static string ProcessGraphPath(string? path)
         {
+            if (string.IsNullOrEmpty(path))
+                return "";
             try
             {
                 return System.Web.HttpUtility.UrlDecode(path.Substring(13));
@@ -172,9 +183,13 @@ namespace OneDriveRipper.Graph
                 FileInfo currentDir = directories.Pop();
                 foreach (DriveItem directory in currentDir.Directories)
                 {
-                    string parentPath = ProcessGraphPath(directory.ParentReference.Path);
-                    if (!(parentPath==""))
-                        parentPath += '/';
+                    string parentPath;
+                    if (directory.ParentReference == null)
+                        parentPath = "";
+                    else
+                        parentPath = ProcessGraphPath(directory.ParentReference.Path);
+                    if (parentPath != "")
+                        parentPath += Path.PathSeparator;
                     if (!Directory.Exists(rootPath + parentPath + directory.Name))
                     {
                         Console.WriteLine($"parentPath {parentPath}");
@@ -191,8 +206,8 @@ namespace OneDriveRipper.Graph
                 foreach (DriveItem file in currentDir.Files)
                 {
                     string parentPath = ProcessGraphPath(file.ParentReference.Path);
-                    if (!(parentPath==""))
-                        parentPath += '/';
+                    if (parentPath != "")
+                        parentPath += Path.PathSeparator;
                     if (!File.Exists(rootPath + parentPath + file.Name))
                     {
                         Console.WriteLine($"Downloading {rootPath + parentPath + file.Name}");

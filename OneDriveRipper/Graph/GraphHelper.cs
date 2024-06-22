@@ -1,9 +1,7 @@
 using Microsoft.Graph;
 using System;
 using System.Threading.Tasks;
-using Azure.Core;
 using Microsoft.Graph.Models;
-using Azure.Identity;
 using Microsoft.Kiota.Abstractions.Authentication;
 
 namespace OneDriveRipper.Graph

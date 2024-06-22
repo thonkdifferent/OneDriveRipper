@@ -13,9 +13,9 @@ namespace OneDriveRipper
         {
             try
             {
-                FileStream fs = File.Create(folderPath + "/.test");
+                FileStream fs = File.Create(folderPath + $"{Path.PathSeparator}.test");
                 fs.Close();
-                File.Delete(folderPath +"/.test");
+                File.Delete(folderPath +$"{Path.PathSeparator}.test");
                 return true;
             }
             catch (UnauthorizedAccessException)
@@ -85,7 +85,7 @@ namespace OneDriveRipper
             Console.WriteLine($"Welcome {user.DisplayName}!\n");
 
 
-            string rootFolder = Environment.CurrentDirectory+"/download";
+            string rootFolder = Environment.CurrentDirectory+$"{Path.PathSeparator}download";
             
             int? choice = -1;
             while (choice != 0)
@@ -114,55 +114,56 @@ namespace OneDriveRipper
                         Console.WriteLine("Goodbye...");
                         break;
                     case 1:
-                        Console.WriteLine("Drag the folder or type the path you want the downloaded data to be stored");
-                        string tentativeDlDir = Console.ReadLine() ?? "";
-                        if (!Directory.Exists(tentativeDlDir))
-                        {
-                            bool ok = true;
-                            try
-                            {
-                                Console.WriteLine(
-                                    $"The path {tentativeDlDir} does not exist. Would you want to create it?");
-                                char ans = Convert.ToChar(Console.ReadLine() ?? "");
-                                if (ans == 'y')
-                                    Directory.CreateDirectory(tentativeDlDir);
-                            }
-                            catch (UnauthorizedAccessException)
-                            {
-                                Console.WriteLine("Couldn't create the folder because you do not have write permissions to that location");
-                                ok = false;
-                            }
-
-                            if (ok)
-                            {
-                                rootFolder = tentativeDlDir;
-                            }
-                        }
-                        else
-                        {
-                            if (HasWriteAccessToFolder(tentativeDlDir))
-                                rootFolder = tentativeDlDir;
-                        }
+                        rootFolder = DetermineRootFolder(rootFolder);
                         break;
                     case 2:
-                        if (!Directory.Exists(rootFolder))
-                        {
-                            Directory.CreateDirectory(rootFolder);
-                        }
-                        if (HasWriteAccessToFolder(rootFolder))
-                        {
-                            var task = helper.GetFilesOneDrive(rootFolder);
-                            task.RunSynchronously();
-                        }
-                        else
+                        if (CreateDirectoryInteractively(rootFolder) == null || !HasWriteAccessToFolder(rootFolder))
                         {
                             Console.WriteLine($"You don't have write permissions to the folder {rootFolder}. Try picking a new location");
+                            break;
                         }
+                        var task = helper.GetFilesOneDrive(rootFolder);
+                        task.RunSynchronously();
+
                         break;
                     default:
                         Console.WriteLine("Invalid choice! Please try again.");
                         break;
                 }
+            }
+        }
+
+        private static string DetermineRootFolder(string rootFolder)
+        {
+            Console.WriteLine("Drag the folder or type the path you want the downloaded data to be stored");
+            string tentativeDlDir = Console.ReadLine() ?? "";
+            if (!Directory.Exists(tentativeDlDir))
+            {
+                rootFolder = CreateDirectoryInteractively(tentativeDlDir) ?? rootFolder;
+                return rootFolder;
+            }
+            if (HasWriteAccessToFolder(tentativeDlDir))
+                rootFolder = tentativeDlDir;
+            
+            return rootFolder;
+        }
+
+        private static string? CreateDirectoryInteractively(string tentativeDlDir)
+        {
+
+            try
+            {
+                Console.WriteLine(
+                    $"The path {tentativeDlDir} does not exist. Would you want to create it?");
+                char ans = Convert.ToChar(Console.ReadLine() ?? "");
+                if (ans == 'y')
+                    Directory.CreateDirectory(tentativeDlDir);
+                return tentativeDlDir;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                Console.WriteLine("Couldn't create the folder because you do not have write permissions to that location");
+                return null;
             }
         }
     }
