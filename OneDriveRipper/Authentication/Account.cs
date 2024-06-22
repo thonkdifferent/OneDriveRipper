@@ -7,8 +7,15 @@ namespace OneDriveRipper.Authentication
 {
     internal class Account : IAccount
     {
-        public required string Username { get; set; }
-        public required string Environment { get; set; }
-        public required AccountId HomeAccountId { get; set;}
+        public string Username { get; set; }
+        public string Environment { get; set; }
+        public AccountId HomeAccountId { get; set;}
+
+        internal Account(IAccount account)
+        {
+            Username = account.Username;
+            Environment = account.Environment;
+            HomeAccountId = account.HomeAccountId;
+        }
     }
 }
