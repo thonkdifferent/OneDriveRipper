@@ -2,8 +2,7 @@ using System;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.IO;
-using System.Security.Cryptography;
-
+using Downloader;
 using System.Threading;
 
 using Microsoft.Graph;
@@ -13,20 +12,13 @@ using File = System.IO.File;
 
 namespace OneDriveRipper.Graph
 {
-    internal enum DownloadStatus
-    {
-        NotStarted,
-        InProgress,
-        Finished,
-        Failed
-    }
-    
+   
     public class OneDriveHandler
     {
 
         private readonly GraphServiceClient _graphServiceClient;
         private readonly Drive _userDrive;
-        private DownloadStatus _status = DownloadStatus.NotStarted;
+        private readonly DownloadConfiguration _configuration;
         public struct FileInfo
         {
             public List<DriveItem> Files;
@@ -79,82 +71,14 @@ namespace OneDriveRipper.Graph
             return fileInfo;
         }
 
-        private async Task Download(DriveItem item, string path)
+
+
+
+        private async Task<bool> Download(DriveItem item, string path)
         {
-            var link = await GetDownloadUrl(item);
-            if(string.IsNullOrEmpty(link))
-                return;
-            if (_status == DownloadStatus.Failed)
-                throw new Exception($"Could not download file {item.Name}");
-
-            if (item.File == null)
-            {
-                Console.ForegroundColor = ConsoleColor.Yellow;
-                await Console.Error.WriteLineAsync($"[WARN] File {item.Name} has no file metadata. This download cannot be verified");
-                Console.ResetColor();
-                return;
-            }
-
-            if (item.File.Hashes == null)
-            {
-                Console.ForegroundColor = ConsoleColor.Yellow;
-                await Console.Error.WriteLineAsync($"[WARN] File {item.Name} has no hashes. This download cannot be verified");
-                Console.ResetColor();
-                return;
-            }
-            
-            
-            await CheckHash(item, path);
-
-            Console.ForegroundColor = ConsoleColor.Green;
-            Console.WriteLine("Success");
-            Console.ResetColor();
-        }
-
-        private async Task CheckHash(DriveItem item, string path)
-        {
-            Console.WriteLine("Verifying download");
-            using var sha256Checker = SHA256.Create();
-            System.IO.FileInfo info = new System.IO.FileInfo(path);
-            await using (FileStream fileStream = info.OpenRead())
-            {
-                fileStream.Position = 0;
-                if (item.File.Hashes.Sha256Hash != null)
-                {
-                    Console.WriteLine("Checking SHA256 hash");
-                    byte[] hashValue = await sha256Checker.ComputeHashAsync(fileStream);
-                    string hashValueStr = Convert.ToHexString(hashValue);
-                    if ( hashValueStr != item.File.Hashes.Sha256Hash)
-                    {
-                        File.Delete(path);
-                        throw new Exception($"SHA256 Hashes for path {path} do not match.\n Expected:{item.File.Hashes.Sha256Hash}\n Got: {hashValueStr}");
-                    }
-                    
-                    Console.WriteLine("SHA256 Check succeeded");
-                }
-                //TODO: Add CRC32 hash
-            }
-        }
-
-
-        private async Task<string?> GetDownloadUrl(DriveItem item)
-        {
-            var driveItemInfo = await _graphServiceClient.Drives[_userDrive.Id].Items[item.Id].GetAsync();
-            if (driveItemInfo == null)
-                throw new NullReferenceException(
-                    $"Could not get the file information for id {item.Id}. This could be caused by an invalid ID or a network issue");
-            
-            try
-            {
-                // Get the download URL. This URL is pre-authenticated and has a short TTL.
-                object? rawUrl;
-                driveItemInfo.AdditionalData.TryGetValue("@microsoft.graph.downloadUrl", out rawUrl);
-                return (string?)rawUrl;
-            }
-            catch (ArgumentNullException)
-            {
-                return null;
-            }
+            DownloadTask task = new DownloadTask(_configuration, _graphServiceClient, _userDrive, item);
+            await task.Start(path);
+            return task.Status == DownloadStatus.Finished;
         }
 
         public OneDriveHandler(GraphServiceClient client)
@@ -168,7 +92,18 @@ namespace OneDriveRipper.Graph
                 throw new NullReferenceException("Could not retrieve drive information");
             }
             _userDrive = driveTask.Result;
-            
+
+            _configuration = new DownloadConfiguration()
+            {
+                ChunkCount = Environment.ProcessorCount,
+                ParallelDownload = true,
+                MaxTryAgainOnFailover = 5,
+                MaximumBytesPerSecond = 0,
+                BufferBlockSize = 10240,
+                MinimumSizeOfChunking = 1024,
+                ClearPackageOnCompletionWithFailure = true
+            };
+
         }
         private static string ProcessGraphPath(string? path)
         {
@@ -217,36 +152,32 @@ namespace OneDriveRipper.Graph
                 foreach (DriveItem file in currentDir.Files)
                 {
                     var parentPath = GetParentPath(file);
-                    if (!File.Exists(rootPath + parentPath + file.Name))
+                    var filePath = rootPath + parentPath + file.Name;
+                    if (!File.Exists(filePath))
                     {
-                        Console.WriteLine($"Downloading {rootPath + parentPath + file.Name}");
+                        Console.WriteLine($"Downloading {filePath}");
+                        
                         try
                         {
-                            await Download(file, rootPath + parentPath + file.Name);
+                            var result = await Download(file, filePath);
+                            if (!result) throw new Exception("Download failed"); //TODO: Make this nicer
                             Console.WriteLine("Done. Waiting 1 second before continuing");
                         }
                         catch (Exception e)
                         {
-                            DownloadInfo downloadInfo = new DownloadInfo();
-                            if (string.IsNullOrEmpty(file.Id))
-                            {
-                                await Console.Error.WriteLineAsync("Failed download has no id property");
-                                Thread.Sleep(1000);
-                                continue;
-                            }
-                            downloadInfo.Id = file.Id;
-                            downloadInfo.Path = rootPath + parentPath + file.Name;
-                            downloadInfo.Item = file;
-                            anyErrorFiles.Add(downloadInfo);
-                            File.Delete(downloadInfo.Path);
-                            Console.WriteLine($"Couldn't download file. Saving for later... Error Data: {e.Message}");
+                            await HandleDownloadError(file, filePath, anyErrorFiles, e);
                         }
 
                         Thread.Sleep(1000);
                     }
                     else
                     {
-                        Console.WriteLine($"File {rootPath + parentPath + file.Name} already present. Skipping");
+                        if (!DownloadTask.CheckHash(file, filePath))
+                        {
+                            await HandleDownloadError(file, filePath, anyErrorFiles);
+                            continue;
+                        }
+                        Console.WriteLine($"File {filePath} already present. Skipping");
                     }
                 }
             }
@@ -259,7 +190,7 @@ namespace OneDriveRipper.Graph
                 try
                 {
                     await Download(file.Item, file.Path);
-                    Console.WriteLine("Done. Waiting 5 seconds before continuing");
+                    Console.WriteLine("Done. Waiting 1 second before continuing");
                 }
                 catch (Exception)
                 {
@@ -275,6 +206,25 @@ namespace OneDriveRipper.Graph
                 
             }
 
+        }
+
+        private static async Task HandleDownloadError(DriveItem file, string filePath, List<DownloadInfo> anyErrorFiles, Exception? e = null)
+        {
+            DownloadInfo downloadInfo = new DownloadInfo();
+            if (string.IsNullOrEmpty(file.Id))
+            {
+                await Console.Error.WriteLineAsync("Failed download has no id property");
+                Thread.Sleep(1000);
+                return;
+            }
+            downloadInfo.Id = file.Id;
+            downloadInfo.Path = filePath;
+            downloadInfo.Item = file;
+            anyErrorFiles.Add(downloadInfo);
+            if(e!=null)
+                Console.WriteLine($"Couldn't download file. Saving for later... Error Data: {e.Message}");
+            else
+                Console.WriteLine($"File hashes did not match. Saving for later...");
         }
 
         private string GetParentPath(DriveItem directory)
