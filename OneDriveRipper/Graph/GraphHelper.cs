@@ -8,8 +8,8 @@ namespace OneDriveRipper.Graph
 {
     public class GraphHelper
     {
-        private GraphServiceClient _graphClient;
-        private OneDriveHandler _handler;
+        private readonly GraphServiceClient _graphClient;
+        private readonly OneDriveHandler _handler;
         public GraphHelper(IAuthenticationProvider authProvider)
         {
             _graphClient = new GraphServiceClient(authProvider);

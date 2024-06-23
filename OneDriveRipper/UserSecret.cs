@@ -10,8 +10,8 @@ namespace OneDriveRipper
             Scopes = "";
         }
 
-        public string AppId { get; set; }
-        public string Scopes { get; set; }
+        public string AppId { get; init; }
+        public string Scopes { get; init; }
     }
 
     public class UserSecret

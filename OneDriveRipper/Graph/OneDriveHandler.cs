@@ -2,8 +2,10 @@ using System;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.IO;
-using System.Net.Http;
+using System.Security.Cryptography;
+using OctaneEngineCore;
 using System.Threading;
+using Autofac;
 using Microsoft.Graph;
 using Microsoft.Graph.Models;
 using Directory = System.IO.Directory;
@@ -11,12 +13,45 @@ using File = System.IO.File;
 
 namespace OneDriveRipper.Graph
 {
+    internal class DownloadTask(string link, string destinationPath)
+    {
+        internal enum DownloadStatus
+        {
+            NotStarted,
+            InProgress,
+            Finished,
+            Failed
+        }
+        
+        internal DownloadStatus Status { get; private set; } = DownloadStatus.NotStarted;
+
+        internal async Task StartDownload(IEngine octaneEngine)
+        {
+            var pauseTokenSource = new PauseTokenSource();
+            using var cancelTokenSource = new CancellationTokenSource();
+
+
+            
+            octaneEngine.SetProgressCallback(progress =>
+            {
+                Status = DownloadStatus.InProgress;
+                Console.WriteLine($"{progress}% complete");
+            });
+            octaneEngine.SetDoneCallback(success =>
+            {
+                if (success) Status = DownloadStatus.Finished;
+                else Status = DownloadStatus.Failed;
+            });
+            await octaneEngine.DownloadFile(link, destinationPath, pauseTokenSource, cancelTokenSource);
+        }
+    }
     public class OneDriveHandler
     {
 
-        private GraphServiceClient _graphServiceClient;
-        private Drive _userDrive;
+        private readonly GraphServiceClient _graphServiceClient;
+        private readonly Drive _userDrive;
         private uint _chunkSize;
+        private readonly IEngine _octaneEngine;
         public uint ChunkSize
         {
             get => _chunkSize;
@@ -35,13 +70,13 @@ namespace OneDriveRipper.Graph
         }
 
         
-        public struct DownloadInfo
+        private struct DownloadInfo
         {
             public string Id;
             public string Path;
             public DriveItem Item;
         }
-        public async Task<FileInfo> ParseGraphData(GraphServiceClient graphServiceClient, string id="root", string name="#ROOT#")
+        private async Task<FileInfo> ParseGraphData(GraphServiceClient graphServiceClient, string id="root", string name="#ROOT#")
         {
             FileInfo fileInfo;
             fileInfo.Files = new List<DriveItem>();
@@ -80,13 +115,75 @@ namespace OneDriveRipper.Graph
             return fileInfo;
         }
 
-        public async Task Download(DriveItem item, string path)
+        private async Task Download(DriveItem item, string path)
         {
             var link = await GetDownloadUrl(item);
             if(string.IsNullOrEmpty(link))
                 return;
+            var task = new DownloadTask(link, path);
+            await task.StartDownload(_octaneEngine);
+            if (task.Status == DownloadTask.DownloadStatus.Failed)
+                throw new Exception($"Could not download file {item.Name}");
+
+            if (item.File == null)
+            {
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                await Console.Error.WriteLineAsync($"[WARN] File {item.Name} has no file metadata. This download cannot be verified");
+                Console.ResetColor();
+                return;
+            }
+
+            if (item.File.Hashes == null)
+            {
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                await Console.Error.WriteLineAsync($"[WARN] File {item.Name} has no hashes. This download cannot be verified");
+                Console.ResetColor();
+                return;
+            }
             
-        }
+            
+            Console.WriteLine("Verifying download");
+            using var sha256Checker = SHA256.Create();
+            using var sha1Checker = SHA1.Create();
+            System.IO.FileInfo info = new System.IO.FileInfo(path);
+            await using (FileStream fileStream = info.OpenRead())
+            {
+                fileStream.Position = 0;
+                if (item.File.Hashes.Sha256Hash != null)
+                {
+                    Console.WriteLine("Checking SHA256 hash");
+                    byte[] hashValue = await sha256Checker.ComputeHashAsync(fileStream);
+                    string hashValueStr = BitConverter.ToString(hashValue);
+                    if ( hashValueStr != item.File.Hashes.Sha256Hash)
+                    {
+                        File.Delete(path);
+                        throw new Exception($"SHA256 Hashes for path {path} do not match.\n Expected:{item.File.Hashes.Sha256Hash}\n Got: {hashValueStr}");
+                    }
+                    
+                    Console.WriteLine("SHA256 Check succeeded");
+                }
+
+                if (item.File.Hashes.Sha1Hash != null)
+                {
+                    Console.WriteLine("Checking SHA1 hash");
+                    byte[] hashValue = await sha1Checker.ComputeHashAsync(fileStream);
+                    string hashValueStr = BitConverter.ToString(hashValue);
+                    if ( hashValueStr != item.File.Hashes.Sha256Hash)
+                    {
+                        File.Delete(path);
+                        throw new Exception($"SHA1 Hashes for path {path} do not match.\n Expected:{item.File.Hashes.Sha256Hash}\n Got: {hashValueStr}");
+                    }
+                    
+                    Console.WriteLine("SHA1 Check succeeded");
+                }
+                //TODO: Add CRC32 hash
+            }
+
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine("Success");
+            Console.ResetColor();
+        }   
+        
 
         private async Task<string?> GetDownloadUrl(DriveItem item)
         {
@@ -97,7 +194,7 @@ namespace OneDriveRipper.Graph
             
             try
             {
-                // Get the download URL. This URL is preauthenticated and has a short TTL.
+                // Get the download URL. This URL is pre-authenticated and has a short TTL.
                 object? rawUrl;
                 driveItemInfo.AdditionalData.TryGetValue("@microsoft.graph.downloadUrl", out rawUrl);
                 return (string?)rawUrl;
@@ -119,9 +216,13 @@ namespace OneDriveRipper.Graph
                 throw new NullReferenceException("Could not retrieve drive information");
             }
             _userDrive = driveTask.Result;
-            ChunkSize = 32768 * 1024; //32 MB
+            
+            var containerBuilder = new ContainerBuilder();
+            containerBuilder.AddOctane();
+            var engineContainer = containerBuilder.Build();
+             _octaneEngine = engineContainer.Resolve<IEngine>();
         }
-        public static string ProcessGraphPath(string? path)
+        private static string ProcessGraphPath(string? path)
         {
             if (string.IsNullOrEmpty(path))
                 return "";
@@ -181,7 +282,7 @@ namespace OneDriveRipper.Graph
                             DownloadInfo downloadInfo = new DownloadInfo();
                             if (string.IsNullOrEmpty(file.Id))
                             {
-                                Console.Error.WriteLine("Failed download has no id property");
+                                await Console.Error.WriteLineAsync("Failed download has no id property");
                                 Thread.Sleep(1000);
                                 continue;
                             }
