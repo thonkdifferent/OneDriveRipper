@@ -150,6 +150,7 @@ namespace OneDriveRipper
         private static string? CreateDirectoryInteractively(string tentativeDlDir)
         {
 
+            if (Directory.Exists(tentativeDlDir)) return tentativeDlDir;
             try
             {
                 Console.WriteLine(

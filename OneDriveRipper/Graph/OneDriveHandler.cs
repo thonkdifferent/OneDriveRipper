@@ -106,6 +106,15 @@ namespace OneDriveRipper.Graph
             }
             
             
+            await CheckHash(item, path);
+
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine("Success");
+            Console.ResetColor();
+        }
+
+        private async Task CheckHash(DriveItem item, string path)
+        {
             Console.WriteLine("Verifying download");
             using var sha256Checker = SHA256.Create();
             System.IO.FileInfo info = new System.IO.FileInfo(path);
@@ -127,12 +136,8 @@ namespace OneDriveRipper.Graph
                 }
                 //TODO: Add CRC32 hash
             }
+        }
 
-            Console.ForegroundColor = ConsoleColor.Green;
-            Console.WriteLine("Success");
-            Console.ResetColor();
-        }   
-        
 
         private async Task<string?> GetDownloadUrl(DriveItem item)
         {
