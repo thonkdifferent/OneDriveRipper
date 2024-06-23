@@ -108,7 +108,6 @@ namespace OneDriveRipper.Graph
             
             Console.WriteLine("Verifying download");
             using var sha256Checker = SHA256.Create();
-            using var sha1Checker = SHA1.Create();
             System.IO.FileInfo info = new System.IO.FileInfo(path);
             await using (FileStream fileStream = info.OpenRead())
             {
@@ -125,20 +124,6 @@ namespace OneDriveRipper.Graph
                     }
                     
                     Console.WriteLine("SHA256 Check succeeded");
-                }
-
-                if (item.File.Hashes.Sha1Hash != null)
-                {
-                    Console.WriteLine("Checking SHA1 hash");
-                    byte[] hashValue = await sha1Checker.ComputeHashAsync(fileStream);
-                    string hashValueStr = Convert.ToHexString(hashValue);
-                    if ( hashValueStr != item.File.Hashes.Sha256Hash)
-                    {
-                        File.Delete(path);
-                        throw new Exception($"SHA1 Hashes for path {path} do not match.\n Expected:{item.File.Hashes.Sha256Hash}\n Got: {hashValueStr}");
-                    }
-                    
-                    Console.WriteLine("SHA1 Check succeeded");
                 }
                 //TODO: Add CRC32 hash
             }
