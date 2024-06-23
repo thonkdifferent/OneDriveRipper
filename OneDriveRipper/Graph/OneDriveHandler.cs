@@ -3,9 +3,9 @@ using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.IO;
 using System.Security.Cryptography;
-using OctaneEngineCore;
+
 using System.Threading;
-using Autofac;
+
 using Microsoft.Graph;
 using Microsoft.Graph.Models;
 using Directory = System.IO.Directory;
@@ -26,7 +26,6 @@ namespace OneDriveRipper.Graph
 
         private readonly GraphServiceClient _graphServiceClient;
         private readonly Drive _userDrive;
-        private readonly IEngine _octaneEngine;
         private DownloadStatus _status = DownloadStatus.NotStarted;
         public struct FileInfo
         {
@@ -85,7 +84,6 @@ namespace OneDriveRipper.Graph
             var link = await GetDownloadUrl(item);
             if(string.IsNullOrEmpty(link))
                 return;
-            await _octaneEngine.DownloadFile(link, path);
             if (_status == DownloadStatus.Failed)
                 throw new Exception($"Could not download file {item.Name}");
 
@@ -171,20 +169,6 @@ namespace OneDriveRipper.Graph
             }
             _userDrive = driveTask.Result;
             
-            var containerBuilder = new ContainerBuilder();
-            containerBuilder.AddOctane();
-            var engineContainer = containerBuilder.Build();
-             _octaneEngine = engineContainer.Resolve<IEngine>();
-             
-             _octaneEngine.SetProgressCallback(progress =>
-             {
-                 _status = DownloadStatus.InProgress;
-                 Console.WriteLine($"{progress*100}% completed");
-             });
-             _octaneEngine.SetDoneCallback(success =>
-             {
-                 _status = success ? DownloadStatus.Finished : DownloadStatus.Failed;
-             });
         }
         private static string ProcessGraphPath(string? path)
         {
