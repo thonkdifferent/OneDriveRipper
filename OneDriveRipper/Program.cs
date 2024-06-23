@@ -13,9 +13,9 @@ namespace OneDriveRipper
         {
             try
             {
-                FileStream fs = File.Create(folderPath + $"{Path.PathSeparator}.test");
+                FileStream fs = File.Create(folderPath + $"{Path.DirectorySeparatorChar}.test");
                 fs.Close();
-                File.Delete(folderPath +$"{Path.PathSeparator}.test");
+                File.Delete(folderPath +$"{Path.DirectorySeparatorChar}.test");
                 return true;
             }
             catch (UnauthorizedAccessException)
@@ -85,7 +85,7 @@ namespace OneDriveRipper
             Console.WriteLine($"Welcome {user.DisplayName}!\n");
 
 
-            string rootFolder = Environment.CurrentDirectory+$"{Path.PathSeparator}download";
+            string rootFolder = Environment.CurrentDirectory+$"{Path.DirectorySeparatorChar}download";
             
             int? choice = -1;
             while (choice != 0)
@@ -123,8 +123,7 @@ namespace OneDriveRipper
                             break;
                         }
                         var task = helper.GetFilesOneDrive(rootFolder);
-                        task.RunSynchronously();
-
+                        task.Wait();
                         break;
                     default:
                         Console.WriteLine("Invalid choice! Please try again.");

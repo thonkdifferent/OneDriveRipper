@@ -13,56 +13,21 @@ using File = System.IO.File;
 
 namespace OneDriveRipper.Graph
 {
-    internal class DownloadTask(string link, string destinationPath)
+    internal enum DownloadStatus
     {
-        internal enum DownloadStatus
-        {
-            NotStarted,
-            InProgress,
-            Finished,
-            Failed
-        }
-        
-        internal DownloadStatus Status { get; private set; } = DownloadStatus.NotStarted;
-
-        internal async Task StartDownload(IEngine octaneEngine)
-        {
-            var pauseTokenSource = new PauseTokenSource();
-            using var cancelTokenSource = new CancellationTokenSource();
-
-
-            
-            octaneEngine.SetProgressCallback(progress =>
-            {
-                Status = DownloadStatus.InProgress;
-                Console.WriteLine($"{progress}% complete");
-            });
-            octaneEngine.SetDoneCallback(success =>
-            {
-                if (success) Status = DownloadStatus.Finished;
-                else Status = DownloadStatus.Failed;
-            });
-            await octaneEngine.DownloadFile(link, destinationPath, pauseTokenSource, cancelTokenSource);
-        }
+        NotStarted,
+        InProgress,
+        Finished,
+        Failed
     }
+    
     public class OneDriveHandler
     {
 
         private readonly GraphServiceClient _graphServiceClient;
         private readonly Drive _userDrive;
-        private uint _chunkSize;
         private readonly IEngine _octaneEngine;
-        public uint ChunkSize
-        {
-            get => _chunkSize;
-            set
-            {
-                if (value == 0)
-                    throw new ArgumentException("Chunks cannot be 0MB in size");
-                _chunkSize = (uint)1 << (int)(value - 1) * 1024;
-            }
-        }
-
+        private DownloadStatus _status = DownloadStatus.NotStarted;
         public struct FileInfo
         {
             public List<DriveItem> Files;
@@ -76,7 +41,7 @@ namespace OneDriveRipper.Graph
             public string Path;
             public DriveItem Item;
         }
-        private async Task<FileInfo> ParseGraphData(GraphServiceClient graphServiceClient, string id="root", string name="#ROOT#")
+        private async Task<FileInfo> ParseGraphData(GraphServiceClient graphServiceClient, string id="root")
         {
             FileInfo fileInfo;
             fileInfo.Files = new List<DriveItem>();
@@ -87,7 +52,7 @@ namespace OneDriveRipper.Graph
                 DriveItemCollectionResponse? folderData = await graphServiceClient.Drives[_userDrive.Id].Items[id].Children.GetAsync(requestConfiguration =>
                 {
                     requestConfiguration.QueryParameters.Select =
-                        ["id", "@microsoft.graph.downloadUrl", "name", "size", "file", "parentReference"];
+                        ["id", "@microsoft.graph.downloadUrl", "name", "size", "file", "parentReference","folder"];
                 });
                 if (folderData == null) throw new ArgumentNullException(nameof(folderData),$"Could not retrieve folder data for ID {id}. This could mean the ID corresponds to a file or that a network error occured. Please try again later. If that does not work, please report this issue on GitHub");
                 var pageIterator = PageIterator<DriveItem,DriveItemCollectionResponse>.CreatePageIterator(graphServiceClient,
@@ -100,7 +65,7 @@ namespace OneDriveRipper.Graph
                         }
                         else
                         {
-                            //Console.WriteLine($"[FOLDER_DETECT] {item.Name}");
+                            Console.WriteLine($"[FOLDER_DETECT] {item.Name}");
                             fileInfo.Directories.Add(item);
                         }
                         return true;
@@ -120,9 +85,8 @@ namespace OneDriveRipper.Graph
             var link = await GetDownloadUrl(item);
             if(string.IsNullOrEmpty(link))
                 return;
-            var task = new DownloadTask(link, path);
-            await task.StartDownload(_octaneEngine);
-            if (task.Status == DownloadTask.DownloadStatus.Failed)
+            await _octaneEngine.DownloadFile(link, path);
+            if (_status == DownloadStatus.Failed)
                 throw new Exception($"Could not download file {item.Name}");
 
             if (item.File == null)
@@ -153,7 +117,7 @@ namespace OneDriveRipper.Graph
                 {
                     Console.WriteLine("Checking SHA256 hash");
                     byte[] hashValue = await sha256Checker.ComputeHashAsync(fileStream);
-                    string hashValueStr = BitConverter.ToString(hashValue);
+                    string hashValueStr = Convert.ToHexString(hashValue);
                     if ( hashValueStr != item.File.Hashes.Sha256Hash)
                     {
                         File.Delete(path);
@@ -167,7 +131,7 @@ namespace OneDriveRipper.Graph
                 {
                     Console.WriteLine("Checking SHA1 hash");
                     byte[] hashValue = await sha1Checker.ComputeHashAsync(fileStream);
-                    string hashValueStr = BitConverter.ToString(hashValue);
+                    string hashValueStr = Convert.ToHexString(hashValue);
                     if ( hashValueStr != item.File.Hashes.Sha256Hash)
                     {
                         File.Delete(path);
@@ -221,6 +185,16 @@ namespace OneDriveRipper.Graph
             containerBuilder.AddOctane();
             var engineContainer = containerBuilder.Build();
              _octaneEngine = engineContainer.Resolve<IEngine>();
+             
+             _octaneEngine.SetProgressCallback(progress =>
+             {
+                 _status = DownloadStatus.InProgress;
+                 Console.WriteLine($"{progress*100}% completed");
+             });
+             _octaneEngine.SetDoneCallback(success =>
+             {
+                 _status = success ? DownloadStatus.Finished : DownloadStatus.Failed;
+             });
         }
         private static string ProcessGraphPath(string? path)
         {
@@ -264,7 +238,7 @@ namespace OneDriveRipper.Graph
                     {
                         throw new NullReferenceException("A directory has no name or no id property. This could be a network issue.");
                     }
-                    directories.Push(await ParseGraphData(_graphServiceClient,directory.Id,directory.Name));
+                    directories.Push(await ParseGraphData(_graphServiceClient,directory.Id));
                 }
                 foreach (DriveItem file in currentDir.Files)
                 {
@@ -277,7 +251,7 @@ namespace OneDriveRipper.Graph
                             await Download(file, rootPath + parentPath + file.Name);
                             Console.WriteLine("Done. Waiting 1 second before continuing");
                         }
-                        catch (Exception)
+                        catch (Exception e)
                         {
                             DownloadInfo downloadInfo = new DownloadInfo();
                             if (string.IsNullOrEmpty(file.Id))
@@ -291,7 +265,7 @@ namespace OneDriveRipper.Graph
                             downloadInfo.Item = file;
                             anyErrorFiles.Add(downloadInfo);
                             File.Delete(downloadInfo.Path);
-                            Console.WriteLine("Couldn't download file. Saving for later...");
+                            Console.WriteLine($"Couldn't download file. Saving for later... Error Data: {e.Message}");
                         }
 
                         Thread.Sleep(1000);
@@ -337,7 +311,7 @@ namespace OneDriveRipper.Graph
             else
                 parentPath = ProcessGraphPath(directory.ParentReference.Path);
             if (parentPath != "")
-                parentPath += Path.PathSeparator;
+                parentPath += Path.DirectorySeparatorChar;
             return parentPath;
         }
     }
