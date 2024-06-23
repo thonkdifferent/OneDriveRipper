@@ -209,7 +209,7 @@ namespace OneDriveRipper.Graph
         {
             _graphServiceClient = client;
             var driveTask = Task.Run(async () => await _graphServiceClient.Me.Drive.GetAsync());
-            Console.WriteLine("Getting current drive id. This may take a while depending on your network connection");
+            Console.WriteLine("Trying log-in");
             driveTask.Wait();
             if (driveTask.Result == null)
             {

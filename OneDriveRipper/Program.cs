@@ -66,7 +66,7 @@ namespace OneDriveRipper
             {
                 TenantId = "common",
                 ClientId = data.AppId,
-                AuthorityHost = AzureAuthorityHosts.AzureGermany,
+                AuthorityHost = AzureAuthorityHosts.AzurePublicCloud,
                 RedirectUri = new Uri("http://localhost")
             };
             var credential = new InteractiveBrowserCredential(options);
