@@ -208,9 +208,9 @@ namespace OneDriveRipper.Graph
         public OneDriveHandler(GraphServiceClient client)
         {
             _graphServiceClient = client;
-            var driveTask = _graphServiceClient.Me.Drive.GetAsync();
+            var driveTask = Task.Run(async () => await _graphServiceClient.Me.Drive.GetAsync());
             Console.WriteLine("Getting current drive id. This may take a while depending on your network connection");
-            driveTask.RunSynchronously();
+            driveTask.Wait();
             if (driveTask.Result == null)
             {
                 throw new NullReferenceException("Could not retrieve drive information");
