@@ -101,6 +101,7 @@ namespace OneDriveRipper.Graph
                 MaximumBytesPerSecond = 0,
                 BufferBlockSize = 10240,
                 MinimumSizeOfChunking = 1024,
+                MaximumMemoryBufferBytes = 1024 * 1024 * 50,
                 ClearPackageOnCompletionWithFailure = true
             };
 
