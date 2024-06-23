@@ -224,7 +224,7 @@ namespace OneDriveRipper.Graph
             if(e!=null)
                 Console.WriteLine($"Couldn't download file. Saving for later... Error Data: {e.Message}");
             else
-                Console.WriteLine($"File hashes did not match. Saving for later...");
+                Console.WriteLine("File hashes did not match. Saving for later...");
         }
 
         private string GetParentPath(DriveItem directory)
