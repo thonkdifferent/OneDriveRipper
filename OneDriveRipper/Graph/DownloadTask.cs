@@ -74,8 +74,11 @@ internal class DownloadTask
     internal async Task Start(string path)
     {
         //OneNote files cannot be downloaded via MSGraph directly due to them not having a downloadLink property. This causes a NRE, so we skip these files until we implement proper OneNote downloads (pdf?)
-        if(string.IsNullOrEmpty(_link))
+        if (string.IsNullOrEmpty(_link))
+        {
+            Status = DownloadStatus.Finished;
             return;
+        }
         _path = path;
         //Start downloading
         
