@@ -24,7 +24,7 @@ internal class DownloadTask
     private DownloadConfiguration _options;
     private DriveItem _item;
     private string _path = "";
-
+    private double? _lastPercentage;
     internal DownloadTask(DownloadConfiguration configuration, GraphServiceClient _client, Drive _userDrive, DriveItem item)
     {
         Status = DownloadStatus.NotStarted;
@@ -64,7 +64,11 @@ internal class DownloadTask
 
     private void OnDownloadProgressChanged(object? sender, DownloadProgressChangedEventArgs args)
     {
-        Console.WriteLine($"[{args.ActiveChunks} jobs total] - {args.ProgressPercentage} completed. Average speed: {args.AverageBytesPerSecondSpeed.CalcMemoryMensurableUnit()}");
+        double percentageDoubleDec = Math.Truncate(args.ProgressPercentage * 100) / 100;
+        if(percentageDoubleDec == _lastPercentage)
+            return;
+        Console.WriteLine($"[{args.ActiveChunks} jobs total] - {percentageDoubleDec}% completed. Average speed: {args.AverageBytesPerSecondSpeed.CalcMemoryMensurableUnit()}");
+        _lastPercentage = percentageDoubleDec;
     }
     
     internal async Task Start(string path)
