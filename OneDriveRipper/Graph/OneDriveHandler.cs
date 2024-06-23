@@ -82,70 +82,14 @@ namespace OneDriveRipper.Graph
 
         public async Task Download(DriveItem item, string path)
         {
-           
-            long offset = 0;         // cursor location for updating the Range header.
-            byte[] bytesInStream; 
-            // We'll use the file metadata to determine size and the name of the downloaded file
-            // and to get the download URL.
-
-            var downloadUrl = await GetDownloadUrl(item);
+            var link = await GetDownloadUrl(item);
+            if(string.IsNullOrEmpty(link))
+                return;
             
-            if(downloadUrl == null) return;
-
-            // Get the number of bytes to download. calculate the number of chunks and determine
-            // the last chunk size.
-            if(item.Size == null) return;
-            long size = (long)item.Size;
-            int numberOfChunks = Convert.ToInt32(size / ChunkSize); 
-            // We are incrementing the offset cursor after writing the response stream to a file after each chunk. 
-            // Subtracting one since the size is 1 based, and the range is 0 base. There should be a better way to do
-            // this but I haven't spent the time on that.
-            int lastChunkSize = Convert.ToInt32(size % ChunkSize) - numberOfChunks - 1; 
-            if (lastChunkSize > 0) { numberOfChunks++; }
-
-            // Create a file stream to contain the downloaded file.
-            using (FileStream fileStream = File.Create((path)))
-            {
-                for (int i = 0; i < numberOfChunks; i++)
-                {
-                    Console.WriteLine($"Chunk {i+1}/{numberOfChunks}");
-                    // Setup the last chunk to request. This will be called at the end of this loop.
-                    if (i == numberOfChunks - 1)
-                    {
-                        chunkSize = lastChunkSize;
-                    }
-
-                    // Create the request message with the download URL and Range header.
-                    HttpRequestMessage req = new HttpRequestMessage(HttpMethod.Get, downloadUrl);
-                    req.Headers.Range = new System.Net.Http.Headers.RangeHeaderValue(offset, chunkSize + offset);
-
-                    // We can use the client library to send this, although it does add an authentication cost.
-                    // HttpResponseMessage response = await graphClient.HttpProvider.SendAsync(req);
-                    // Since the download URL is pre-authenticated, and we aren't deserializing objects, 
-                    // we'd be better to make the request with HttpClient.
-                    var client = new HttpClient();
-                    HttpResponseMessage response = await client.SendAsync(req);
-
-                    using (Stream responseStream = await response.Content.ReadAsStreamAsync())
-                    {
-                        bytesInStream = new byte[chunkSize];
-                        int read;
-                        do
-                        {
-                            read = responseStream.Read(bytesInStream, 0, bytesInStream.Length);
-                            if (read > 0)
-                                fileStream.Write(bytesInStream, 0, bytesInStream.Length);
-                        }
-                        while (read > 0);
-                    }
-                    offset += chunkSize + 1; // Move the offset cursor to the next chunk.
-                }
-            }
         }
 
         private async Task<string?> GetDownloadUrl(DriveItem item)
         {
-            string downloadUrl;
             var driveItemInfo = await _graphServiceClient.Drives[_userDrive.Id].Items[item.Id].GetAsync();
             if (driveItemInfo == null)
                 throw new NullReferenceException(
