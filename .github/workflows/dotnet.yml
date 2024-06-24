@@ -13,7 +13,7 @@ jobs:
   build:
 
     runs-on: ubuntu-latest
-
+    environment: Package
     steps:
     - uses: actions/checkout@v4
     - name: Setup .NET
@@ -31,16 +31,16 @@ jobs:
     - name: Prepare DEB packaging
       run: dotnet tool install --global dotnet-deb
     - name: Install RPM packaging tool
-      run: dotnet rpm install
+      run:  dotnet rpm install
     - name: Install DEB packagin tool
-      run: dotnet deb install
+      run:  dotnet deb install
     - name: Create RPM package
-      run: dotnet rpm -c Release
+      run: cd OneDriveRipper && dotnet rpm -c Release
     - name: Create DEB package
-      run: dotnet deb -c Release
+      run:  cd OneDriveRipper && dotnet deb -c Release
     - name: Publish packages
       uses: QXIP/packagecloud-action@V1
       with:
         repo: onedriveripper
-        dir: ./bin/Release/net8.0/
+        dir: ./OneDriveRipper/bin/Release/net8.0/
       
