@@ -1,4 +1,6 @@
 using System;
+using System.IO;
+
 namespace OneDriveRipper;
 
 public sealed class GlobalConfiguration
@@ -39,11 +41,17 @@ public sealed class GlobalConfiguration
         set => _maximumBufferSize = 1024*1024*value;
     }
 
+    public string LogLocation
+    {
+        get => _logLocation;
+    }
+    
     private GlobalConfiguration()
     {
     }
     private static readonly Lazy<GlobalConfiguration> Lazy = new Lazy<GlobalConfiguration>(() => new GlobalConfiguration());
     private bool _verifyDownload = true;
+    private readonly string _logLocation = $"{Path.GetTempPath()}OneDriveRipper{Path.DirectorySeparatorChar}";
     private int _maxDownloadJobs = Environment.ProcessorCount;
     private bool _doParalelDownload = true;
     private int _maxTryAgainFailover = 5;

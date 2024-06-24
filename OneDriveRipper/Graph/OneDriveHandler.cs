@@ -19,6 +19,8 @@ namespace OneDriveRipper.Graph
         private readonly GraphServiceClient _graphServiceClient;
         private readonly Drive _userDrive;
         private readonly DownloadConfiguration _configuration;
+        private int errorCount = 0;
+        private readonly string logFilePath = $"{GlobalConfiguration.Instance.LogLocation}OneDriveRipperErrors-{Environment.ProcessId}.log";
         public struct FileInfo
         {
             public List<DriveItem> Files;
@@ -159,7 +161,9 @@ namespace OneDriveRipper.Graph
                     }
                     catch (Exception e)
                     {
-                        File.AppendAllText("rippererrors.log",$"Something went wrong while processing folder {rootPath + parentPath + directory.Name}. Decoded path {directory.ParentReference?.Path ?? "null"}. Error data: {e.Message}\n");
+                        
+                        File.AppendAllText(logFilePath,$"Something went wrong while processing folder {rootPath + parentPath + directory.Name}. Decoded path {directory.ParentReference?.Path ?? "null"}. Error data: {e.Message}\n");
+                        errorCount++;
                         continue;
                     }
                     if (directory.Id == null || directory.Name == null)
@@ -226,6 +230,18 @@ namespace OneDriveRipper.Graph
                 
             }
 
+            Console.Clear();
+            if (errorCount > 0)
+            {
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                Console.WriteLine($"WARNING! Downloads finished with {errorCount} failed downloads. Consult {logFilePath} for more details");
+            }
+            else
+            {
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine("Success!");
+            }
+            Console.ResetColor();
         }
 
         private static async Task HandleDownloadError(DriveItem file, string filePath, List<DownloadInfo> anyErrorFiles, Exception? e = null)

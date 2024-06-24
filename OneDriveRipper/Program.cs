@@ -54,6 +54,23 @@ namespace OneDriveRipper
         }
         static void Main()
         {
+
+            try
+            {
+                Directory.CreateDirectory(GlobalConfiguration.Instance.LogLocation);
+            }
+            catch (UnauthorizedAccessException)
+            {
+                Console.WriteLine(
+                    $"You do not have the required permission to create folder {GlobalConfiguration.Instance.LogLocation}.");
+                return;
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine($"Something went wrong: {e.Message}\n {e.StackTrace}");
+                return;
+            }
+
             UserSecret? data = LoadConfig();
             if (data == null)
             {
@@ -167,6 +184,7 @@ namespace OneDriveRipper
 #if !NOLOGIN
                         var task = helper.GetFilesOneDrive(rootFolder);
                         task.Wait();
+                        
 #endif
                         break;
                     case 3:
