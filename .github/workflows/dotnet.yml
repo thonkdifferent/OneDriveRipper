@@ -37,7 +37,7 @@ jobs:
     - name: Create DEB package
       run:  cd OneDriveRipper && dotnet deb -c Release -o dist-release
     - name: Publish packages
-      uses: TykTechnologies/packagecloud-action@v1
+      uses: TykTechnologies/packagecloud-action@7add92bc6a06914be404cf7fa00a6ccb302e6ac5
       env: 
         PACKAGECLOUD_TOKEN: ${{ secrets.PACKAGECLOUD_TOKEN }}
       with:
