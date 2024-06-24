@@ -4,7 +4,7 @@
         <OutputType>Exe</OutputType>
         <LangVersion>latestmajor</LangVersion>
         <Nullable>enable</Nullable>
-        <Version>1.1.0</Version>
+        <Version>2.0.0</Version>
         <TargetFramework>net8.0</TargetFramework>
     </PropertyGroup>
 
