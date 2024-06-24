@@ -1,0 +1,46 @@
+# This workflow will build a .NET project
+# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-net
+
+name: .NET
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 8.0.x
+    - name: Restore dependencies
+      run: dotnet restore
+    - name: Build
+      run: dotnet build --no-restore
+    - name: Change CD
+      run: cd OneDriveRipper
+    - name: Prepare RPM packaging
+      run: dotnet tool install --global dotnet-rpm
+    - name: Prepare DEB packaging
+      run: dotnet tool install --global dotnet-deb
+    - name: Install RPM packaging tool
+      run: dotnet rpm install
+    - name: Install DEB packagin tool
+      run: dotnet deb install
+    - name: Create RPM package
+      run: dotnet rpm -c Release
+    - name: Create DEB package
+      run: dotnet deb -c Release
+    - name: Publish packages
+      uses: QXIP/packagecloud-action@V1
+      with:
+        repo: onedriveripper
+        dir: ./bin/Release/net8.0/
+      
