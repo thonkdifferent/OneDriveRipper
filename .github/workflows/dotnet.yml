@@ -43,5 +43,5 @@ jobs:
       with:
         repo: 'thonkdifferent/onedriveripper'
         dir: './OneDriveRipper/dist-release/'
-        rpmvers: 'el8 el9 fedora/39 fedora/40 openSUSE/Tumbleweed openSUSE/Leap/15.6 openSUSE/Leap/15.5'
+        rpmvers: 'el/8 el/9 fedora/39 fedora/40 openSUSE/Tumbleweed openSUSE/Leap/15.6 openSUSE/Leap/15.5'
         debvers: 'debian/bookworm debian/testing debian/unstable ubuntu/focal ubuntu/jammy ubuntu/noble'
