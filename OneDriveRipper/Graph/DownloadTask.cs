@@ -67,7 +67,7 @@ internal class DownloadTask
         double percentageDoubleDec = Math.Truncate(args.ProgressPercentage * 100) / 100;
         if(percentageDoubleDec == _lastPercentage)
             return;
-        Console.WriteLine($"[{args.ActiveChunks} jobs total] - {percentageDoubleDec}% completed. Average speed: {args.AverageBytesPerSecondSpeed.CalcMemoryMensurableUnit()}");
+        Console.WriteLine($"[{args.ActiveChunks} jobs total] - {percentageDoubleDec}% completed. Average speed: {args.AverageBytesPerSecondSpeed.CalcMemoryMensurableUnit()}/s");
         _lastPercentage = percentageDoubleDec;
     }
     
@@ -133,6 +133,7 @@ internal class DownloadTask
 
     internal static bool CheckHash(DriveItem item, string path)
     {
+        if (!GlobalConfiguration.Instance.VerifyDownload) return true;
         Console.WriteLine("Verifying download");
         if (!AreHashesPresent(item)) return false;
         using var sha256Checker = SHA256.Create();

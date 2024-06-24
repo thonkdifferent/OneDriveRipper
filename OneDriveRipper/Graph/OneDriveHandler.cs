@@ -56,7 +56,9 @@ namespace OneDriveRipper.Graph
                         }
                         else
                         {
+                            #if DEBUG
                             Console.WriteLine($"[FOLDER_DETECT] {item.Name}");
+                            #endif
                             fileInfo.Directories.Add(item);
                         }
                         return true;
@@ -95,13 +97,13 @@ namespace OneDriveRipper.Graph
 
             _configuration = new DownloadConfiguration()
             {
-                ChunkCount = Environment.ProcessorCount,
-                ParallelDownload = true,
-                MaxTryAgainOnFailover = 5,
-                MaximumBytesPerSecond = 0,
+                ChunkCount = GlobalConfiguration.Instance.MaxDownloadJobs,
+                ParallelDownload = GlobalConfiguration.Instance.DoParalelDownload,
+                MaxTryAgainOnFailover = GlobalConfiguration.Instance.MaxTryAgainFailover,
+                MaximumBytesPerSecond = GlobalConfiguration.Instance.MaximumBytesPerSecond,
                 BufferBlockSize = 10240,
                 MinimumSizeOfChunking = 1024,
-                MaximumMemoryBufferBytes = 1024 * 1024 * 50,
+                MaximumMemoryBufferBytes = GlobalConfiguration.Instance.MaximumBufferSize,
                 ClearPackageOnCompletionWithFailure = true
             };
 
@@ -112,7 +114,14 @@ namespace OneDriveRipper.Graph
                 return "";
             try
             {
-                return System.Web.HttpUtility.UrlDecode(path.Substring(13));
+                return System.Web.HttpUtility.UrlDecode(path.Substring(13)
+                    .Replace("+","%2B") //WORKAROUND: MS Graph does not actually fully encode the path with percent-encoding, which trips up the converter, causing the program to crash
+                    .Replace("!","%21")
+                    .Replace("\"","%22")
+                    .Replace("#","%23")
+                    .Replace("$","%24")
+                    .Replace("&","%26")
+                    .Replace("'","%27"));
             }
             catch (ArgumentOutOfRangeException)
             {
@@ -132,18 +141,27 @@ namespace OneDriveRipper.Graph
                 foreach (DriveItem directory in currentDir.Directories)
                 {
                     var parentPath = GetParentPath(directory);
-                    if (!Directory.Exists(rootPath + parentPath + directory.Name))
+                    try
                     {
-                        Console.WriteLine($"parentPath {parentPath}");
-                        Console.WriteLine(
-                            $"Creating directory \"{directory.Name}\" in {rootPath + parentPath + directory.Name}");
-                        Directory.CreateDirectory(rootPath + parentPath + directory.Name);
-                    }
-                    else
-                    {
-                        Console.WriteLine($"Directory {rootPath + parentPath + directory.Name} already present. Skipping");
-                    }
+                        if (!Directory.Exists(rootPath + parentPath + directory.Name))
+                        {
+                            Console.WriteLine($"parentPath {parentPath}");
+                            Console.WriteLine(
+                                $"Creating directory \"{directory.Name}\" in {rootPath + parentPath + directory.Name}");
+                           
+                                Directory.CreateDirectory(rootPath + parentPath + directory.Name);
 
+                        }
+                        else
+                        {
+                            Console.WriteLine($"Directory {rootPath + parentPath + directory.Name} already present. Skipping");
+                        }
+                    }
+                    catch (Exception e)
+                    {
+                        File.AppendAllText("rippererrors.log",$"Something went wrong while processing folder {rootPath + parentPath + directory.Name}. Decoded path {directory.ParentReference?.Path ?? "null"}. Error data: {e.Message}\n");
+                        continue;
+                    }
                     if (directory.Id == null || directory.Name == null)
                     {
                         throw new NullReferenceException("A directory has no name or no id property. This could be a network issue.");
@@ -173,12 +191,13 @@ namespace OneDriveRipper.Graph
                     }
                     else
                     {
+                        Console.Write($"File {filePath} already exists. ");
+                        if(!GlobalConfiguration.Instance.VerifyDownload)
+                            Console.WriteLine("Skipping...");
                         if (!DownloadTask.CheckHash(file, filePath))
                         {
                             await HandleDownloadError(file, filePath, anyErrorFiles);
-                            continue;
                         }
-                        Console.WriteLine($"File {filePath} already present. Skipping");
                     }
                 }
             }
