@@ -35,12 +35,13 @@ jobs:
     - name: Install DEB packagin tool
       run:  dotnet deb install
     - name: Create RPM package
-      run: cd OneDriveRipper && dotnet rpm -c Release
+      run: cd OneDriveRipper && dotnet rpm -c Release -o dist-release
     - name: Create DEB package
-      run:  cd OneDriveRipper && dotnet deb -c Release
+      run:  cd OneDriveRipper && dotnet deb -c Release -o dist-release
     - name: Publish packages
-      uses: QXIP/packagecloud-action@V1
+      uses: TykTechnologies/packagecloud-action@V1
+      env: 
+        PACKAGECLOUD_TOKEN: ${{ secrets.PACKAGECLOUD_TOKEN }}
       with:
-        repo: onedriveripper
-        dir: ./OneDriveRipper/bin/Release/net8.0/
-      
+        repo: 'thonkdifferent/onedriveripper'
+        dir: './OneDriveRipper/dist-release/'
